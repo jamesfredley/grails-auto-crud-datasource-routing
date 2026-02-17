@@ -10,15 +10,18 @@ import javax.sql.DataSource
  *
  * Visit http://localhost:8080/bugDemo/index to see the issue.
  *
- * This controller:
- * 1. Saves a Metric via the auto-implemented MetricService.save() method
- *    (which has @Transactional(connection = 'secondary'))
- * 2. Queries both H2 databases via raw JDBC to prove where the data actually went
- * 3. Reports whether the data was routed correctly or not
+ * This controller tests TWO patterns:
+ * 1. MetricService — abstract class with @Transactional(connection = 'secondary')
+ *    implementing a separate MetricDataService interface
+ * 2. MetricInterfaceOnlyDataService — interface-only with @Service + @Transactional(connection)
+ *    directly on the interface, no abstract class
+ *
+ * Both patterns should route auto-implemented save/get/delete/count to the secondary datasource.
  */
 class BugDemoController {
 
     MetricService metricService
+    MetricInterfaceOnlyDataService metricInterfaceOnlyDataService
     ItemDataService itemDataService
     DataSource dataSource            // Primary datasource
     DataSource dataSource_secondary  // Secondary datasource
@@ -48,11 +51,29 @@ class BugDemoController {
             results.metric_save_error = e.message
         }
 
+        // --- Step 1b: Save via interface-only Data Service (no abstract class) ---
+        def metric2 = new Metric(name: 'test-metric-interface-only', value: 99.0)
+        def savedMetric2 = null
+        try {
+            savedMetric2 = metricInterfaceOnlyDataService.save(metric2)
+            results.metric_interface_only_saved = savedMetric2?.id != null
+            results.metric_interface_only_save_error = null
+        } catch (Exception e) {
+            results.metric_interface_only_saved = false
+            results.metric_interface_only_save_error = e.message
+        }
+
         // --- Step 2: Use auto-implemented count() ---
         try {
             results.metric_count_via_data_service = metricService.count()
         } catch (Exception e) {
             results.metric_count_via_data_service = "ERROR: ${e.message}"
+        }
+
+        try {
+            results.metric_count_via_interface_only = metricInterfaceOnlyDataService.count()
+        } catch (Exception e) {
+            results.metric_count_via_interface_only = "ERROR: ${e.message}"
         }
 
         results.item_count_via_data_service = itemDataService.count()
@@ -137,7 +158,11 @@ class BugDemoController {
         results.explanation = [
                 setup: 'METRIC table exists ONLY on the secondary database (created manually in BootStrap). If @Transactional(connection = "secondary") is honored, save() routes to secondary and succeeds. If the bug is present, save() routes to primary (no METRIC table) and fails with a SQL error.',
                 bug: 'Auto-implemented CRUD methods (save, get, delete, count) on GORM Data Services do not propagate the connection qualifier from @Transactional(connection = "secondary")',
-                expected: 'MetricService has @Transactional(connection = "secondary"), so save() should route to the secondary H2 database where the METRIC table exists',
+                expected: 'Both MetricService (abstract class pattern) and MetricInterfaceOnlyDataService (interface-only pattern) have @Transactional(connection = "secondary"), so save() should route to the secondary H2 database where the METRIC table exists',
+                patterns_tested: [
+                        'Pattern 1 (MetricService)': 'Abstract class with @Service(Metric) @Transactional(connection = "secondary") implementing MetricDataService interface',
+                        'Pattern 2 (MetricInterfaceOnlyDataService)': 'Interface with @Service(Metric) @Transactional(connection = "secondary") directly — no abstract class'
+                ],
                 datasources: [
                         primary: 'jdbc:h2:mem:primarydb (ITEM table only)',
                         secondary: 'jdbc:h2:mem:secondarydb (ITEM + METRIC tables)'

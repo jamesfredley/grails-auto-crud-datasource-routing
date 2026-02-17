@@ -6,7 +6,7 @@
 
 ## Bug Description
 
-GORM Data Service auto-implemented CRUD methods (`save()`, `get()`, `delete()`, `count()`) **ignore** the `@Transactional(connection = 'secondary')` annotation on the abstract class and always route to the default datasource.
+GORM Data Service auto-implemented CRUD methods (`save()`, `get()`, `delete()`, `count()`) **ignore** the `@Transactional(connection = 'secondary')` annotation and always route to the default datasource. This affects both patterns: abstract class implementing an interface, and interface-only (no abstract class).
 
 ## Steps to Reproduce
 
@@ -75,7 +75,7 @@ abstract class MetricService implements MetricDataService {
 ```
 
 ```groovy
-// MetricDataService.groovy (interface)
+// MetricDataService.groovy (interface, no annotations)
 interface MetricDataService {
     Metric get(Serializable id)
     Metric save(Metric metric)
@@ -84,6 +84,21 @@ interface MetricDataService {
     List<Metric> list(Map args)
     Metric findByName(String name)
     List<Metric> findAllByName(String name)
+}
+```
+
+**Pattern 2: Interface-only (no abstract class)**
+
+```groovy
+// MetricInterfaceOnlyDataService.groovy
+@Service(Metric)
+@Transactional(connection = 'secondary')
+interface MetricInterfaceOnlyDataService {
+    Metric get(Serializable id)
+    Metric save(Metric metric)
+    void delete(Serializable id)
+    Long count()
+    Metric findByName(String name)
 }
 ```
 
@@ -139,7 +154,8 @@ This defeats the purpose of auto-implementation but ensures correct routing.
 | `grails-app/domain/com/example/Metric.groovy` | Domain on default datasource (table created on secondary by BootStrap) |
 | `grails-app/domain/com/example/Item.groovy` | Control domain on default datasource (MultiTenant) |
 | `grails-app/services/com/example/MetricDataService.groovy` | Data Service interface (auto-implemented by GORM) |
-| `grails-app/services/com/example/MetricService.groovy` | Abstract class with `@Transactional(connection = 'secondary')` |
+| `grails-app/services/com/example/MetricService.groovy` | Abstract class with `@Transactional(connection = 'secondary')` (Pattern 1) |
+| `grails-app/services/com/example/MetricInterfaceOnlyDataService.groovy` | Interface-only with `@Transactional(connection = 'secondary')` (Pattern 2) |
 | `grails-app/services/com/example/ItemDataService.groovy` | Control Data Service on default datasource |
 | `grails-app/controllers/com/example/BugDemoController.groovy` | Demonstrates the bug via JSON endpoint |
 | `src/integration-test/groovy/com/example/DataServiceRoutingSpec.groovy` | Integration test verifying routing |
